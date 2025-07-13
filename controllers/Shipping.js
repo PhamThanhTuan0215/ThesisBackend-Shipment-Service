@@ -121,30 +121,38 @@ module.exports.getShippingOrders = async (req, res) => {
         const orderMap = new Map(orders.map(order => [order.id, order]));
 
         // Lấy danh sách địa chỉ từ ShippingAddress và Store Service
-        const shippingAddressIds = [];
-        const storeIds = [];
+        const shippingAddressFromIds = [];
+        const storeFromIds = [];
+        const shippingAddressToIds = [];
+        const storeToIds = [];
         
         shipments.forEach(shipment => {
             if (shipment.returned_order_id !== null) {
-                shippingAddressIds.push(shipment.shipping_address_from_id);
+                // Đơn hoàn trả: from = ShippingAddress, to = Store
+                shippingAddressFromIds.push(shipment.shipping_address_from_id);
+                storeToIds.push(shipment.shipping_address_to_id);
             } else {
-                storeIds.push(shipment.shipping_address_from_id);
+                // Đơn thường: from = Store, to = ShippingAddress
+                storeFromIds.push(shipment.shipping_address_from_id);
+                shippingAddressToIds.push(shipment.shipping_address_to_id);
             }
         });
 
         // Lấy địa chỉ từ ShippingAddress
+        const allShippingAddressIds = [...new Set([...shippingAddressFromIds, ...shippingAddressToIds])];
         const shippingAddresses = await ShippingAddress.findAll({
             where: {
-                id: { [Op.in]: shippingAddressIds }
+                id: { [Op.in]: allShippingAddressIds }
             }
         });
         const shippingAddressMap = new Map(shippingAddresses.map(addr => [addr.id, addr]));
 
         // Lấy địa chỉ từ Store Service
         let storeAddressMap = new Map();
-        if (storeIds.length > 0) {
+        const allStoreIds = [...new Set([...storeFromIds, ...storeToIds])];
+        if (allStoreIds.length > 0) {
             try {
-                const storeResponse = await storeServiceAxios.post(`/stores/list`, { store_ids: storeIds });
+                const storeResponse = await storeServiceAxios.post(`/stores/list`, { store_ids: allStoreIds });
                 const stores = storeResponse.data.data;
                 storeAddressMap = new Map(
                     stores.map(store => [store.id, store])
@@ -166,11 +174,12 @@ module.exports.getShippingOrders = async (req, res) => {
                 plainShipment.final_total = order.final_total;
             }
 
-            // Add address information
+            // Add pickup address (address_from)
             if (shipment.returned_order_id !== null) {
+                // Đơn hoàn trả: lấy từ ShippingAddress
                 const shippingAddress = shippingAddressMap.get(shipment.shipping_address_from_id);
                 if (shippingAddress) {
-                    plainShipment.address = {
+                    plainShipment.address_from = {
                         province_id: shippingAddress.province_id,
                         province_name: shippingAddress.province_name,
                         district_id: shippingAddress.district_id,
@@ -183,9 +192,10 @@ module.exports.getShippingOrders = async (req, res) => {
                     };
                 }
             } else {
+                // Đơn thường: lấy từ Store
                 const storeAddress = storeAddressMap.get(shipment.shipping_address_from_id);
                 if (storeAddress) {
-                    plainShipment.address = {
+                    plainShipment.address_from = {
                         province_id: storeAddress.province_id,
                         province_name: storeAddress.province_name,
                         district_id: storeAddress.district_id,
@@ -195,6 +205,41 @@ module.exports.getShippingOrders = async (req, res) => {
                         address_detail: storeAddress.address_detail,
                         phone: storeAddress.phone,
                         name: storeAddress.name
+                    };
+                }
+            }
+
+            // Add delivery address (address_to)
+            if (shipment.returned_order_id !== null) {
+                // Đơn hoàn trả: lấy từ Store
+                const storeAddress = storeAddressMap.get(shipment.shipping_address_to_id);
+                if (storeAddress) {
+                    plainShipment.address_to = {
+                        province_id: storeAddress.province_id,
+                        province_name: storeAddress.province_name,
+                        district_id: storeAddress.district_id,
+                        district_name: storeAddress.district_name,
+                        ward_code: storeAddress.ward_code,
+                        ward_name: storeAddress.ward_name,
+                        address_detail: storeAddress.address_detail,
+                        phone: storeAddress.phone,
+                        name: storeAddress.name
+                    };
+                }
+            } else {
+                // Đơn thường: lấy từ ShippingAddress
+                const shippingAddress = shippingAddressMap.get(shipment.shipping_address_to_id);
+                if (shippingAddress) {
+                    plainShipment.address_to = {
+                        province_id: shippingAddress.province_id,
+                        province_name: shippingAddress.province_name,
+                        district_id: shippingAddress.district_id,
+                        district_name: shippingAddress.district_name,
+                        ward_code: shippingAddress.ward_code,
+                        ward_name: shippingAddress.ward_name,
+                        address_detail: shippingAddress.address_detail,
+                        phone: shippingAddress.phone,
+                        name: shippingAddress.full_name
                     };
                 }
             }
