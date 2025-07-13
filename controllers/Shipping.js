@@ -111,7 +111,10 @@ module.exports.getShippingOrders = async (req, res) => {
         const where = {};
         if (req.query.current_status) where.current_status = req.query.current_status;
         if (req.query.tracking_number) where.tracking_number = req.query.tracking_number;
-        const shipments = await Shipment.findAll({ where });
+        const shipments = await Shipment.findAll({ 
+            where,
+            order: [['updatedAt', 'DESC']]
+        });
 
         // gọi api order-service để lấy thêm payment_method và payment_status
         const order_ids = shipments.map(shipment => shipment.order_id);
