@@ -92,7 +92,7 @@ module.exports.createShippingOrder = async (req, res) => {
             progress: [],
         });
 
-        axiosNotificationService.post('/notifications', {
+        await axiosNotificationService.post('/notifications', {
             target_type: 'shipper',
             title: 'Có đơn vận chuyển mới được tạo',
             body: `Có đơn vận chuyển mới được tạo, vui lòng đi lấy hàng.`
