@@ -5,6 +5,7 @@ const { SHIPPING_STATUS, CHECKPOINT_STATUS, CHECKPOINT_TO_SHIPPING_STATUS } = re
 const ShippingAddress = require('../database/models/ShippingAddress');
 const orderServiceAxios = require('../services/orderService');
 const axiosNotificationService = require('../services/notificationService');
+const storeServiceAxios = require('../services/storeService');
 
 // Schema validate tạo vận đơn
 const createOrderSchema = Joi.object({
@@ -119,6 +120,40 @@ module.exports.getShippingOrders = async (req, res) => {
         const orders = response.data.data;
         const orderMap = new Map(orders.map(order => [order.id, order]));
 
+        // Lấy danh sách địa chỉ từ ShippingAddress và Store Service
+        const shippingAddressIds = [];
+        const storeIds = [];
+        
+        shipments.forEach(shipment => {
+            if (shipment.returned_order_id !== null) {
+                shippingAddressIds.push(shipment.shipping_address_from_id);
+            } else {
+                storeIds.push(shipment.shipping_address_from_id);
+            }
+        });
+
+        // Lấy địa chỉ từ ShippingAddress
+        const shippingAddresses = await ShippingAddress.findAll({
+            where: {
+                id: { [Op.in]: shippingAddressIds }
+            }
+        });
+        const shippingAddressMap = new Map(shippingAddresses.map(addr => [addr.id, addr]));
+
+        // Lấy địa chỉ từ Store Service
+        let storeAddressMap = new Map();
+        if (storeIds.length > 0) {
+            try {
+                const storeResponse = await storeServiceAxios.post(`/stores/list`, { store_ids: storeIds });
+                const stores = storeResponse.data.data;
+                storeAddressMap = new Map(
+                    stores.map(store => [store.id, store])
+                );
+            } catch (error) {
+                console.error('Failed to fetch store addresses:', error.message);
+            }
+        }
+
         // Convert Sequelize instances to plain objects and add payment info
         const formattedShipments = shipments.map(shipment => {
             // Convert to plain object
@@ -129,6 +164,39 @@ module.exports.getShippingOrders = async (req, res) => {
                 plainShipment.payment_method = order.payment_method;
                 plainShipment.payment_status = order.payment_status;
                 plainShipment.final_total = order.final_total;
+            }
+
+            // Add address information
+            if (shipment.returned_order_id !== null) {
+                const shippingAddress = shippingAddressMap.get(shipment.shipping_address_from_id);
+                if (shippingAddress) {
+                    plainShipment.address = {
+                        province_id: shippingAddress.province_id,
+                        province_name: shippingAddress.province_name,
+                        district_id: shippingAddress.district_id,
+                        district_name: shippingAddress.district_name,
+                        ward_code: shippingAddress.ward_code,
+                        ward_name: shippingAddress.ward_name,
+                        address_detail: shippingAddress.address_detail,
+                        phone: shippingAddress.phone,
+                        name: shippingAddress.full_name
+                    };
+                }
+            } else {
+                const storeAddress = storeAddressMap.get(shipment.shipping_address_from_id);
+                if (storeAddress) {
+                    plainShipment.address = {
+                        province_id: storeAddress.province_id,
+                        province_name: storeAddress.province_name,
+                        district_id: storeAddress.district_id,
+                        district_name: storeAddress.district_name,
+                        ward_code: storeAddress.ward_code,
+                        ward_name: storeAddress.ward_name,
+                        address_detail: storeAddress.address_detail,
+                        phone: storeAddress.phone,
+                        name: storeAddress.name
+                    };
+                }
             }
 
             return plainShipment;
